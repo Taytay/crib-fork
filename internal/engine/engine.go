@@ -393,6 +393,38 @@ func (e *Engine) saveResult(ws *workspace.Workspace, cfg *config.DevContainerCon
 	}
 }
 
+// Suspend stops the container without removing it. Workspace state and hook
+// markers are preserved so that a subsequent "up" restarts the same container
+// and only runs resume-flow hooks (postStartCommand, postAttachCommand).
+func (e *Engine) Suspend(ctx context.Context, ws *workspace.Workspace) error {
+	e.logger.Debug("suspend", "workspace", ws.ID)
+
+	// For compose workspaces, use compose stop (not compose down).
+	if result, err := e.store.LoadResult(ws.ID); err == nil && result != nil {
+		var cfg config.DevContainerConfig
+		if json.Unmarshal(result.MergedConfig, &cfg) == nil && len(cfg.DockerComposeFile) > 0 {
+			if e.compose != nil {
+				inv := newComposeInvocation(ws, &cfg, result.WorkspaceFolder)
+				return e.composeStop(ctx, inv)
+			}
+		}
+	}
+
+	// Non-compose path: stop the individual container.
+	container, err := e.driver.FindContainer(ctx, ws.ID)
+	if err != nil {
+		return fmt.Errorf("finding container: %w", err)
+	}
+	if container == nil {
+		return fmt.Errorf("no container found for workspace %s", ws.ID)
+	}
+	if !container.State.IsRunning() {
+		return fmt.Errorf("container is already stopped")
+	}
+
+	return e.driver.StopContainer(ctx, ws.ID, container.ID)
+}
+
 // Down stops and removes the container for the given workspace, but keeps
 // workspace state in the store so that a subsequent "up" can recreate it.
 // Hook markers are cleared so the next "up" runs all lifecycle hooks.
