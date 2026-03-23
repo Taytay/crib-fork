@@ -12,8 +12,9 @@ will restart the same container and only run resume-flow lifecycle hooks
 (postStartCommand, postAttachCommand), making it much faster than a full
 'crib up' from scratch.
 
-Note: if you edit devcontainer.json while the container is suspended,
-'crib restart' may recreate the container to apply the new configuration.
+Note: if you edit devcontainer.json while the container is suspended and
+change runtime settings (mounts, ports, environment variables, etc.),
+'crib restart' will recreate the container to apply the new configuration.
 
 Use 'crib down' to stop and remove the container instead.`,
 	Args: noArgs,
