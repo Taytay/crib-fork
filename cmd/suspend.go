@@ -7,9 +7,13 @@ var suspendCmd = &cobra.Command{
 	Short: "Stop the workspace container without removing it",
 	Long: `Stop the workspace container without removing it.
 
-The container is stopped but preserved. Running 'crib up' will restart the
-same container and only run resume-flow lifecycle hooks (postStartCommand,
-postAttachCommand), making it much faster than a full 'crib up' from scratch.
+The container is stopped but preserved. Running 'crib up' or 'crib restart'
+will restart the same container and only run resume-flow lifecycle hooks
+(postStartCommand, postAttachCommand), making it much faster than a full
+'crib up' from scratch.
+
+Note: if you edit devcontainer.json while the container is suspended,
+'crib restart' may recreate the container to apply the new configuration.
 
 Use 'crib down' to stop and remove the container instead.`,
 	Args: noArgs,
