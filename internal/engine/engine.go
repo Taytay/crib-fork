@@ -407,6 +407,7 @@ func (e *Engine) Suspend(ctx context.Context, ws *workspace.Workspace) error {
 				inv := newComposeInvocation(ws, &cfg, result.WorkspaceFolder)
 				return e.composeStop(ctx, inv)
 			}
+			return fmt.Errorf("workspace %s uses docker compose but compose support is not available", ws.ID)
 		}
 	}
 
@@ -419,7 +420,7 @@ func (e *Engine) Suspend(ctx context.Context, ws *workspace.Workspace) error {
 		return fmt.Errorf("no container found for workspace %s", ws.ID)
 	}
 	if !container.State.IsRunning() {
-		return fmt.Errorf("container is already stopped")
+		return fmt.Errorf("container for workspace %s is not running (state: %v)", ws.ID, container.State)
 	}
 
 	return e.driver.StopContainer(ctx, ws.ID, container.ID)
