@@ -24,7 +24,13 @@ const (
 //
 // cacheMounts are BuildKit cache mount targets (e.g. "/var/cache/apt") to
 // attach to each feature install RUN instruction. Pass nil to disable.
-func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string, cacheMounts []string) (content, prefix string) {
+//
+// configContainerEnv is the containerEnv from devcontainer.json (not from
+// features). These are baked into the image as ENV instructions with dollar
+// signs escaped, matching the official devcontainer CLI behavior. This keeps
+// values like ${PATH} stored literally in the image so Docker does not
+// interpolate them at build time. Pass nil if not applicable.
+func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string, cacheMounts []string, configContainerEnv map[string]string) (content, prefix string) {
 	prefix = dockerfileSyntax + "\n" + baseImageArg + "\n"
 
 	var b strings.Builder
@@ -113,8 +119,70 @@ func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string
 	fmt.Fprintf(&b, "ARG _DEV_CONTAINERS_IMAGE_USER=%s\n", imageUser)
 	b.WriteString("USER $_DEV_CONTAINERS_IMAGE_USER\n")
 
+	// devcontainer.json containerEnv as ENV instructions with escaped dollar
+	// signs. Placed after feature layers and user restore, matching the
+	// official devcontainer CLI's #{containerEnvMetadata} placement.
+	// Dollar signs are escaped so Docker stores them literally; the shell
+	// expands them at runtime (e.g. \${PATH} becomes ${PATH} in the image,
+	// then the shell resolves it when a session starts).
+	if len(configContainerEnv) > 0 {
+		b.WriteString("\n")
+
+		// Sort keys for deterministic Dockerfile output, since content is part
+		// of the prebuild hash and map iteration order is random.
+		keys := make([]string, 0, len(configContainerEnv))
+		for k := range configContainerEnv {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+
+		for _, k := range keys {
+			v := configContainerEnv[k]
+			fmt.Fprintf(&b, "ENV %s=%s\n", k, escapeEnvValue(v))
+		}
+	}
+
 	content = b.String()
 	return content, prefix
+}
+
+// escapeEnvValue formats a value for a Dockerfile ENV instruction with dollar
+// signs escaped. This matches the official devcontainer CLI's
+// generateContainerEnvs(env, escapeDollar=true) behavior: double quotes,
+// backslashes, and dollar signs are all escaped, and the result is wrapped
+// in double quotes.
+func escapeEnvValue(v string) string {
+	// Escape backslashes, double quotes, and dollar signs (in that order).
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `"`, `\"`)
+	v = strings.ReplaceAll(v, `$`, `\$`)
+	return `"` + v + `"`
+}
+
+// AppendConfigContainerEnv appends devcontainer.json containerEnv as ENV
+// instructions to a Dockerfile content string. Dollar signs are escaped so
+// Docker stores values literally (matching the official devcontainer CLI's
+// #{containerEnvMetadata} behavior). This is used for the Dockerfile-based
+// path without features, where GenerateDockerfile is not called.
+// Returns dockerfileContent unchanged if containerEnv is empty.
+func AppendConfigContainerEnv(dockerfileContent string, containerEnv map[string]string) string {
+	if len(containerEnv) == 0 {
+		return dockerfileContent
+	}
+
+	keys := make([]string, 0, len(containerEnv))
+	for k := range containerEnv {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	var b strings.Builder
+	b.WriteString(dockerfileContent)
+	b.WriteString("\n")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "ENV %s=%s\n", k, escapeEnvValue(containerEnv[k]))
+	}
+	return b.String()
 }
 
 // hasAptCache reports whether /var/cache/apt is among the cache mount targets.

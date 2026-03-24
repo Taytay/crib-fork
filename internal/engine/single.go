@@ -30,7 +30,10 @@ var featureCmd = []string{"/bin/sh", "-c", "echo Container started; trap \"exit 
 // buildRunOptions constructs RunOptions from the devcontainer config.
 // hasFeatureEntrypoints indicates the image has feature-declared entrypoints
 // baked in via ENTRYPOINT; when true, overrideCommand only sets CMD.
-func (e *Engine) buildRunOptions(cfg *config.DevContainerConfig, imageName, projectRoot, workspaceFolder string, hasFeatureEntrypoints bool) (*driver.RunOptions, error) {
+// containerEnvBaked indicates that cfg.ContainerEnv was already baked into the
+// image as ENV instructions; when true, containerEnv is omitted from -e flags
+// to avoid overriding the image's correctly-expanded values.
+func (e *Engine) buildRunOptions(cfg *config.DevContainerConfig, imageName, projectRoot, workspaceFolder string, hasFeatureEntrypoints, containerEnvBaked bool) (*driver.RunOptions, error) {
 	opts := &driver.RunOptions{
 		Image:  imageName,
 		Labels: make(map[string]string),
@@ -56,9 +59,14 @@ func (e *Engine) buildRunOptions(cfg *config.DevContainerConfig, imageName, proj
 		}
 	}
 
-	// Environment variables.
-	for k, v := range cfg.ContainerEnv {
-		opts.Env = append(opts.Env, k+"="+v)
+	// Environment variables: only inject when not already baked into the image.
+	// When containerEnvBaked is true, containerEnv was written as ENV instructions
+	// in the Dockerfile, so passing them via -e would override the image's
+	// correctly-expanded values with unexpanded literals (e.g. ${PATH} on the host).
+	if !containerEnvBaked {
+		for k, v := range cfg.ContainerEnv {
+			opts.Env = append(opts.Env, k+"="+v)
+		}
 	}
 
 	// Init process.

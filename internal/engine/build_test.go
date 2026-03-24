@@ -54,8 +54,36 @@ func TestFeatureToMetadata(t *testing.T) {
 	if len(m.Mounts) != 1 || m.Mounts[0].Source != "dind-var-lib-docker-${devcontainerId}" {
 		t.Errorf("Mounts = %v, want [{volume dind-var-lib-docker-${devcontainerId} /var/lib/docker}]", m.Mounts)
 	}
-	if m.ContainerEnv["DOCKER_HOST"] != "unix:///var/run/docker.sock" {
-		t.Errorf("ContainerEnv[DOCKER_HOST] = %q, want unix:///var/run/docker.sock", m.ContainerEnv["DOCKER_HOST"])
+	// ContainerEnv should NOT be in metadata — it's baked into the image via
+	// ENV instructions during build. Passing it as -e flags would override the
+	// image's correctly-expanded values with unexpanded literals.
+	if len(m.ContainerEnv) != 0 {
+		t.Errorf("ContainerEnv should be empty (baked into image), got %v", m.ContainerEnv)
+	}
+}
+
+// TestFeatureToMetadata_NvmPathNotInMetadata simulates the node/nvm feature
+// that declares PATH=/nvm/bin:${PATH} in containerEnv. This value is baked
+// into the image via Dockerfile ENV (where Docker expands ${PATH} at build
+// time). It must NOT appear in the runtime metadata, because passing it as a
+// docker -e flag would override the image's correctly-expanded PATH with the
+// literal string "${PATH}".
+func TestFeatureToMetadata_NvmPathNotInMetadata(t *testing.T) {
+	f := &feature.FeatureSet{
+		Config: &feature.FeatureConfig{
+			ID: "node",
+			ContainerEnv: map[string]string{
+				"PATH":                "/usr/local/share/nvm/current/bin:${PATH}",
+				"NVM_DIR":             "/usr/local/share/nvm",
+				"NVM_SYMLINK_CURRENT": "true",
+			},
+		},
+	}
+
+	m := featureToMetadata(f)
+
+	if len(m.ContainerEnv) != 0 {
+		t.Errorf("feature ContainerEnv must not be in metadata (would override image ENV with unexpanded literals), got %v", m.ContainerEnv)
 	}
 }
 

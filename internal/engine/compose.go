@@ -132,7 +132,10 @@ func (e *Engine) resolveComposeDockerfileInfo(svcInfo *composehelper.ServiceInfo
 // configuration (labels, entrypoint, env, mounts, etc.). featureMetadata is
 // optional; when non-nil, feature-declared capabilities (privileged, init,
 // capAdd, entrypoints) are included in the override.
-func (e *Engine) generateComposeOverride(ws *workspace.Workspace, cfg *config.DevContainerConfig, workspaceFolder string, composeFiles []string, featureImage string, pluginResp *plugin.PreContainerRunResponse, featureMetadata ...*config.ImageMetadata) (string, error) {
+// containerEnvBaked indicates that cfg.ContainerEnv was baked into the image
+// as ENV instructions; when true, containerEnv is omitted from the compose
+// environment section to avoid overriding the correctly-expanded image values.
+func (e *Engine) generateComposeOverride(ws *workspace.Workspace, cfg *config.DevContainerConfig, workspaceFolder string, composeFiles []string, featureImage string, pluginResp *plugin.PreContainerRunResponse, containerEnvBaked bool, featureMetadata ...*config.ImageMetadata) (string, error) {
 	serviceName := cfg.Service
 
 	// Build the override YAML.
@@ -187,13 +190,19 @@ func (e *Engine) generateComposeOverride(ws *workspace.Workspace, cfg *config.De
 	featureEnv, featureMounts := writeFeatureOverrides(&b, featureMetadata, subCtx)
 
 	// Container environment (config + plugins + features).
-	hasConfigEnv := len(cfg.ContainerEnv) > 0
+	// cfg.ContainerEnv is omitted when containerEnvBaked is true: the values
+	// were already written as ENV instructions in the feature image Dockerfile,
+	// so re-injecting them via compose environment would override the image's
+	// correctly-expanded values with unexpanded literals.
+	hasConfigEnv := !containerEnvBaked && len(cfg.ContainerEnv) > 0
 	hasPluginEnv := pluginResp != nil && len(pluginResp.Env) > 0
 	hasFeatureEnv := len(featureEnv) > 0
 	if hasConfigEnv || hasPluginEnv || hasFeatureEnv {
 		b.WriteString("    environment:\n")
-		for k, v := range cfg.ContainerEnv {
-			fmt.Fprintf(&b, "      %s: %q\n", k, v)
+		if hasConfigEnv {
+			for k, v := range cfg.ContainerEnv {
+				fmt.Fprintf(&b, "      %s: %q\n", k, v)
+			}
 		}
 		for k, v := range featureEnv {
 			fmt.Fprintf(&b, "      %s: %q\n", k, v)

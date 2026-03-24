@@ -33,7 +33,7 @@ func (b *singleBackend) buildImage(ctx context.Context) (*buildResult, error) {
 }
 
 func (b *singleBackend) createContainer(ctx context.Context, opts createOpts) (string, error) {
-	runOpts, err := b.e.buildRunOptions(b.cfg, opts.imageName, b.ws.Source, b.workspaceFolder, opts.hasEntrypoints)
+	runOpts, err := b.e.buildRunOptions(b.cfg, opts.imageName, b.ws.Source, b.workspaceFolder, opts.hasEntrypoints, opts.containerEnvBaked)
 	if err != nil {
 		return "", err
 	}

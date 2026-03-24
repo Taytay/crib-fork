@@ -19,7 +19,7 @@ func TestBuildRunOptions_Minimal(t *testing.T) {
 	e := &Engine{}
 	cfg := &config.DevContainerConfig{}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestBuildRunOptions_OverrideCommandFalse(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 	cfg.OverrideCommand = &oc
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestBuildRunOptions_WithContainerUser(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 	cfg.ContainerUser = "vscode"
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestBuildRunOptions_WithSecurityOpts(t *testing.T) {
 	cfg.CapAdd = []string{"SYS_PTRACE"}
 	cfg.SecurityOpt = []string{"seccomp=unconfined"}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestBuildRunOptions_CustomWorkspaceMount(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 	cfg.WorkspaceMount = "type=bind,src=/custom/src,dst=/custom/dst"
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestBuildRunOptions_ContainerEnv(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 	cfg.ContainerEnv = map[string]string{"FOO": "bar"}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,12 +138,34 @@ func TestBuildRunOptions_ContainerEnv(t *testing.T) {
 	}
 }
 
+func TestBuildRunOptions_ContainerEnvBaked_SkipsRuntime(t *testing.T) {
+	// When containerEnvBaked=true, cfg.ContainerEnv must NOT be passed as -e
+	// flags. The values were already written as ENV instructions in the image
+	// Dockerfile; re-injecting them via -e would override the correctly-expanded
+	// image values (e.g. PATH=/nvm/bin:${PATH}) with unexpanded literals.
+	e := &Engine{}
+	cfg := &config.DevContainerConfig{}
+	cfg.ContainerEnv = map[string]string{
+		"PATH":    "/nvm/bin:${PATH}",
+		"NVM_DIR": "/usr/local/share/nvm",
+	}
+
+	opts, err := e.buildRunOptions(cfg, "crib-myproject:crib-abc123", "/project", "/workspaces/project", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(opts.Env) != 0 {
+		t.Errorf("Env should be empty when containerEnvBaked=true, got %v", opts.Env)
+	}
+}
+
 func TestBuildRunOptions_RunArgsPassthrough(t *testing.T) {
 	e := &Engine{}
 	cfg := &config.DevContainerConfig{}
 	cfg.RunArgs = []string{"--network=host", "--gpus", "all"}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +188,7 @@ func TestBuildRunOptions_NoRunArgs(t *testing.T) {
 	e := &Engine{}
 	cfg := &config.DevContainerConfig{}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +203,7 @@ func TestBuildRunOptions_ForwardPorts(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 	cfg.ForwardPorts = config.StrIntArray{"8080", "9090:3000"}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +224,7 @@ func TestBuildRunOptions_AppPort(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 	cfg.AppPort = config.StrIntArray{"3000", "5000:5000"}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +246,7 @@ func TestBuildRunOptions_PortsDedup(t *testing.T) {
 	cfg.ForwardPorts = config.StrIntArray{"8080", "3000"}
 	cfg.AppPort = config.StrIntArray{"8080", "5000"}
 
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +268,7 @@ func TestBuildRunOptions_FeatureEntrypoints(t *testing.T) {
 	cfg := &config.DevContainerConfig{}
 
 	// With feature entrypoints: should NOT override ENTRYPOINT, CMD is full command.
-	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", true)
+	opts, err := e.buildRunOptions(cfg, "alpine:3.20", "/project", "/workspaces/project", true, false)
 	if err != nil {
 		t.Fatal(err)
 	}

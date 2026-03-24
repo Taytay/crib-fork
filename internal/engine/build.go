@@ -17,9 +17,10 @@ import (
 
 // buildResult holds the outcome of an image build.
 type buildResult struct {
-	imageName      string
-	imageMetadata  []*config.ImageMetadata
-	hasEntrypoints bool // true if any feature declared an entrypoint
+	imageName          string
+	imageMetadata      []*config.ImageMetadata
+	hasEntrypoints     bool // true if any feature declared an entrypoint
+	containerEnvBaked  bool // true if cfg.ContainerEnv was baked into the image as ENV instructions
 }
 
 // buildImage handles image building for the single container path.
@@ -57,13 +58,18 @@ func (e *Engine) buildFromImage(ctx context.Context, ws *workspace.Workspace, cf
 		remoteUser = containerUser
 	}
 
-	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts)
+	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts, cfg.ContainerEnv)
 	// Replace the placeholder so FROM $_DEV_CONTAINERS_BASE_IMAGE resolves to
 	// the actual image instead of the literal string "placeholder".
 	featurePrefix = strings.ReplaceAll(featurePrefix, "=placeholder", "="+cfg.Image)
 	dockerfileContent := featurePrefix + "\n" + featureContent
 
-	return e.doBuild(ctx, ws, cfg, dockerfileContent, features, containerUser, remoteUser)
+	res, err := e.doBuild(ctx, ws, cfg, dockerfileContent, features, containerUser, remoteUser)
+	if err != nil {
+		return nil, err
+	}
+	res.containerEnvBaked = len(cfg.ContainerEnv) > 0
+	return res, nil
 }
 
 // buildFromDockerfile handles the Dockerfile-based devcontainer path.
@@ -114,7 +120,7 @@ func (e *Engine) buildFromDockerfile(ctx context.Context, ws *workspace.Workspac
 		}
 
 		// Generate feature Dockerfile layers.
-		featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts)
+		featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts, cfg.ContainerEnv)
 
 		// Replace the placeholder so FROM $_DEV_CONTAINERS_BASE_IMAGE resolves
 		// to the user's final Dockerfile stage.
@@ -123,9 +129,19 @@ func (e *Engine) buildFromDockerfile(ctx context.Context, ws *workspace.Workspac
 		// Strip existing syntax directives and prepend the feature prefix.
 		dockerfileContent = dockerfile.RemoveSyntaxVersion(dockerfileContent)
 		dockerfileContent = featurePrefix + "\n" + dockerfileContent + "\n" + featureContent
+	} else if len(cfg.ContainerEnv) > 0 {
+		// No features but containerEnv is set: append ENV instructions to the
+		// user's Dockerfile so values are baked into the image. This avoids
+		// passing them as -e flags (which would evaluate ${VAR} on the host).
+		dockerfileContent = feature.AppendConfigContainerEnv(dockerfileContent, cfg.ContainerEnv)
 	}
 
-	return e.doBuild(ctx, ws, cfg, dockerfileContent, features, containerUser, remoteUser)
+	res, err := e.doBuild(ctx, ws, cfg, dockerfileContent, features, containerUser, remoteUser)
+	if err != nil {
+		return nil, err
+	}
+	res.containerEnvBaked = len(cfg.ContainerEnv) > 0
+	return res, nil
 }
 
 // doBuild writes the final Dockerfile and invokes the driver to build.
@@ -262,11 +278,16 @@ func (e *Engine) buildComposeFeatureImage(ctx context.Context, ws *workspace.Wor
 		remoteUser = containerUser
 	}
 
-	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts)
+	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts, cfg.ContainerEnv)
 	featurePrefix = strings.ReplaceAll(featurePrefix, "=placeholder", "="+baseImage)
 	dockerfileContent := featurePrefix + "\n" + featureContent
 
-	return e.doBuild(ctx, ws, cfg, dockerfileContent, features, containerUser, remoteUser)
+	res, err := e.doBuild(ctx, ws, cfg, dockerfileContent, features, containerUser, remoteUser)
+	if err != nil {
+		return nil, err
+	}
+	res.containerEnvBaked = len(cfg.ContainerEnv) > 0
+	return res, nil
 }
 
 // resolveComposeContainerUser determines the container user for a compose
@@ -391,7 +412,11 @@ func featureToMetadata(f *feature.FeatureSet) *config.ImageMetadata {
 	m.Init = f.Config.Init
 	m.Privileged = f.Config.Privileged
 	m.Mounts = f.Config.Mounts
-	m.ContainerEnv = f.Config.ContainerEnv
+	// ContainerEnv is intentionally omitted here. Feature containerEnv values
+	// are baked into the image as ENV instructions during the Dockerfile build
+	// (see feature.GenerateDockerfile). Passing them again as docker -e flags
+	// would override the image's correctly-expanded values with unexpanded
+	// literals (e.g. ${PATH} would not resolve to the image's actual PATH).
 	m.OnCreateCommand = f.Config.OnCreateCommand
 	m.PostCreateCommand = f.Config.PostCreateCommand
 	m.PostStartCommand = f.Config.PostStartCommand
