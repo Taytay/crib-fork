@@ -54,8 +54,11 @@ func TestFeatureToMetadata(t *testing.T) {
 	if len(m.Mounts) != 1 || m.Mounts[0].Source != "dind-var-lib-docker-${devcontainerId}" {
 		t.Errorf("Mounts = %v, want [{volume dind-var-lib-docker-${devcontainerId} /var/lib/docker}]", m.Mounts)
 	}
-	if m.ContainerEnv["DOCKER_HOST"] != "unix:///var/run/docker.sock" {
-		t.Errorf("ContainerEnv[DOCKER_HOST] = %q, want unix:///var/run/docker.sock", m.ContainerEnv["DOCKER_HOST"])
+	// ContainerEnv should NOT be in metadata — it's baked into the image via
+	// ENV instructions during build. Passing it as -e flags would override the
+	// image's correctly-expanded values with unexpanded literals.
+	if len(m.ContainerEnv) != 0 {
+		t.Errorf("ContainerEnv should be empty (baked into image), got %v", m.ContainerEnv)
 	}
 }
 
