@@ -27,9 +27,9 @@ const (
 //
 // configContainerEnv is the containerEnv from devcontainer.json (not from
 // features). These are baked into the image as ENV instructions with dollar
-// signs escaped, matching the official devcontainer CLI behavior. This ensures
-// values like ${PATH} are stored literally and expanded by the shell at
-// runtime, not by Docker at build time. Pass nil if not applicable.
+// signs escaped, matching the official devcontainer CLI behavior. This keeps
+// values like ${PATH} stored literally in the image so Docker does not
+// interpolate them at build time. Pass nil if not applicable.
 func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string, cacheMounts []string, configContainerEnv map[string]string) (content, prefix string) {
 	prefix = dockerfileSyntax + "\n" + baseImageArg + "\n"
 
