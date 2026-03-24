@@ -72,14 +72,19 @@ func TestGenerateDockerfileMultiple(t *testing.T) {
 	}
 }
 
-func TestGenerateDockerfileContainerEnv(t *testing.T) {
+func TestGenerateDockerfileFeatureContainerEnv(t *testing.T) {
+	// Simulates the node/nvm feature: containerEnv declares PATH with ${PATH}
+	// reference. Feature ENV must use unescaped dollars so Docker expands
+	// ${PATH} at build time against the image's existing PATH.
 	features := []*FeatureSet{
 		{
-			ConfigID: "my-feature",
+			ConfigID: "node",
 			Config: &FeatureConfig{
-				ID: "my-feature",
+				ID: "node",
 				ContainerEnv: map[string]string{
-					"MY_VAR": "my_value",
+					"NVM_DIR":              "/usr/local/share/nvm",
+					"NVM_SYMLINK_CURRENT":  "true",
+					"PATH":                 "/usr/local/share/nvm/current/bin:${PATH}",
 				},
 			},
 		},
@@ -87,8 +92,21 @@ func TestGenerateDockerfileContainerEnv(t *testing.T) {
 
 	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
-	if !strings.Contains(content, `ENV MY_VAR="my_value"`) {
-		t.Errorf("content missing ENV instruction, got:\n%s", content)
+	// Feature PATH should use unescaped ${PATH} — Docker's ENV expands it
+	// at build time so the image ships with the fully resolved PATH.
+	if !strings.Contains(content, `ENV PATH="/usr/local/share/nvm/current/bin:${PATH}"`) {
+		t.Errorf("feature PATH ENV should have unescaped ${PATH}, got:\n%s", content)
+	}
+	if !strings.Contains(content, `ENV NVM_DIR="/usr/local/share/nvm"`) {
+		t.Errorf("missing NVM_DIR ENV instruction in:\n%s", content)
+	}
+
+	// Feature ENV should appear BEFORE the USER restore (within the feature
+	// install layer), not after it.
+	envIdx := strings.Index(content, `ENV PATH=`)
+	userIdx := strings.Index(content, "USER $_DEV_CONTAINERS_IMAGE_USER")
+	if envIdx < 0 || userIdx < 0 || envIdx > userIdx {
+		t.Errorf("feature ENV should appear before USER restore")
 	}
 }
 
