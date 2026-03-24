@@ -31,7 +31,25 @@ changelog:
 
 release:
   github:
-    owner: fgrehm
-    name: crib
+    owner: Taytay
+    name: crib-fork
   footer: |
-    **Full Changelog**: https://fgrehm.github.io/crib/reference/changelog/
+    **Full Changelog**: https://github.com/Taytay/crib-fork/blob/main/CHANGELOG.md
+
+brews:
+  - name: crib-fork
+    repository:
+      owner: Taytay
+      name: crib-fork
+    directory: Formula
+    homepage: https://github.com/Taytay/crib-fork
+    description: >-
+      Dev containers without the ceremony (unofficial fork of fgrehm/crib).
+    license: MIT
+    install: |
+      bin.install "crib"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/crib version")
+    caveats: |
+      This is an unofficial fork of crib (https://github.com/fgrehm/crib).
+      For the official version, see the upstream repository.
