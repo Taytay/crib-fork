@@ -127,7 +127,17 @@ func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string
 	// then the shell resolves it when a session starts).
 	if len(configContainerEnv) > 0 {
 		b.WriteString("\n")
-		for k, v := range configContainerEnv {
+
+		// Sort keys for deterministic Dockerfile output, since content is part
+		// of the prebuild hash and map iteration order is random.
+		keys := make([]string, 0, len(configContainerEnv))
+		for k := range configContainerEnv {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+
+		for _, k := range keys {
+			v := configContainerEnv[k]
 			fmt.Fprintf(&b, "ENV %s=%s\n", k, escapeEnvValue(v))
 		}
 	}
