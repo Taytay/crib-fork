@@ -57,7 +57,7 @@ func (e *Engine) buildFromImage(ctx context.Context, ws *workspace.Workspace, cf
 		remoteUser = containerUser
 	}
 
-	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts)
+	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts, cfg.ContainerEnv)
 	// Replace the placeholder so FROM $_DEV_CONTAINERS_BASE_IMAGE resolves to
 	// the actual image instead of the literal string "placeholder".
 	featurePrefix = strings.ReplaceAll(featurePrefix, "=placeholder", "="+cfg.Image)
@@ -114,7 +114,7 @@ func (e *Engine) buildFromDockerfile(ctx context.Context, ws *workspace.Workspac
 		}
 
 		// Generate feature Dockerfile layers.
-		featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts)
+		featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts, cfg.ContainerEnv)
 
 		// Replace the placeholder so FROM $_DEV_CONTAINERS_BASE_IMAGE resolves
 		// to the user's final Dockerfile stage.
@@ -262,7 +262,7 @@ func (e *Engine) buildComposeFeatureImage(ctx context.Context, ws *workspace.Wor
 		remoteUser = containerUser
 	}
 
-	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts)
+	featureContent, featurePrefix := feature.GenerateDockerfile(features, containerUser, remoteUser, e.buildCacheMounts, cfg.ContainerEnv)
 	featurePrefix = strings.ReplaceAll(featurePrefix, "=placeholder", "="+baseImage)
 	dockerfileContent := featurePrefix + "\n" + featureContent
 

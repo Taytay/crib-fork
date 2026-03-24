@@ -15,7 +15,7 @@ func TestGenerateDockerfileSingle(t *testing.T) {
 		},
 	}
 
-	content, prefix := GenerateDockerfile(features, "vscode", "vscode", nil)
+	content, prefix := GenerateDockerfile(features, "vscode", "vscode", nil, nil)
 
 	// Prefix checks.
 	if !strings.Contains(prefix, "# syntax=docker.io/docker/dockerfile:1.4") {
@@ -61,7 +61,7 @@ func TestGenerateDockerfileMultiple(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "root", "root", nil)
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
 	// Both features should have numbered install scripts.
 	if !strings.Contains(content, "/tmp/build-features/0/devcontainer-features-install.sh") {
@@ -85,7 +85,7 @@ func TestGenerateDockerfileContainerEnv(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "root", "root", nil)
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
 	if !strings.Contains(content, `ENV MY_VAR="my_value"`) {
 		t.Errorf("content missing ENV instruction, got:\n%s", content)
@@ -100,7 +100,7 @@ func TestGenerateDockerfilePrefix(t *testing.T) {
 		},
 	}
 
-	_, prefix := GenerateDockerfile(features, "", "", nil)
+	_, prefix := GenerateDockerfile(features, "", "", nil, nil)
 
 	lines := strings.Split(strings.TrimSpace(prefix), "\n")
 	if len(lines) != 2 {
@@ -122,7 +122,7 @@ func TestGenerateDockerfileUserVariables(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "vscode", "vscode", nil)
+	content, _ := GenerateDockerfile(features, "vscode", "vscode", nil, nil)
 
 	if !strings.Contains(content, "USER root") {
 		t.Error("missing USER root for feature installation")
@@ -141,7 +141,7 @@ func TestGenerateDockerfileCacheMounts(t *testing.T) {
 	}
 
 	mounts := []string{"/var/cache/apt", "/var/lib/apt/lists", "/root/.npm"}
-	content, _ := GenerateDockerfile(features, "root", "root", mounts)
+	content, _ := GenerateDockerfile(features, "root", "root", mounts, nil)
 
 	// Each cache mount should appear on the RUN line.
 	for _, m := range mounts {
@@ -166,19 +166,19 @@ func TestGenerateDockerfileCacheMountsAptDisablesDockerClean(t *testing.T) {
 	}
 
 	// With apt cache: should disable docker-clean.
-	content, _ := GenerateDockerfile(features, "root", "root", []string{"/var/cache/apt"})
+	content, _ := GenerateDockerfile(features, "root", "root", []string{"/var/cache/apt"}, nil)
 	if !strings.Contains(content, "rm -f /etc/apt/apt.conf.d/docker-clean") {
 		t.Error("expected docker-clean removal with apt cache")
 	}
 
 	// Without apt: no docker-clean removal.
-	content, _ = GenerateDockerfile(features, "root", "root", []string{"/root/.npm"})
+	content, _ = GenerateDockerfile(features, "root", "root", []string{"/root/.npm"}, nil)
 	if strings.Contains(content, "docker-clean") {
 		t.Error("unexpected docker-clean removal without apt cache")
 	}
 
 	// No cache mounts: no docker-clean removal.
-	content, _ = GenerateDockerfile(features, "root", "root", nil)
+	content, _ = GenerateDockerfile(features, "root", "root", nil, nil)
 	if strings.Contains(content, "docker-clean") {
 		t.Error("unexpected docker-clean removal with nil cache mounts")
 	}
@@ -195,7 +195,7 @@ func TestGenerateDockerfileSingleEntrypoint(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "root", "root", nil)
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
 	if !strings.Contains(content, `ENTRYPOINT ["/usr/local/share/docker-init.sh"]`) {
 		t.Errorf("missing single ENTRYPOINT instruction in:\n%s", content)
@@ -220,7 +220,7 @@ func TestGenerateDockerfileMultipleEntrypoints(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "root", "root", nil)
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
 	// Later features wrap earlier ones (outermost runs first).
 	if !strings.Contains(content, "crib-entrypoint.sh") {
@@ -243,7 +243,7 @@ func TestGenerateDockerfileNoEntrypoint(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "root", "root", nil)
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
 	if strings.Contains(content, "ENTRYPOINT") {
 		t.Errorf("unexpected ENTRYPOINT for features without entrypoints:\n%s", content)
@@ -258,10 +258,89 @@ func TestGenerateDockerfileNoCacheMountsWithoutProviders(t *testing.T) {
 		},
 	}
 
-	content, _ := GenerateDockerfile(features, "root", "root", nil)
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
 
 	// Should not have any cache mounts.
 	if strings.Contains(content, "type=cache") {
 		t.Errorf("unexpected cache mount in:\n%s", content)
+	}
+}
+
+func TestGenerateDockerfileConfigContainerEnv(t *testing.T) {
+	features := []*FeatureSet{
+		{
+			ConfigID: "test",
+			Config:   &FeatureConfig{ID: "test"},
+		},
+	}
+
+	configEnv := map[string]string{
+		"MY_VAR":  "hello",
+		"MY_PATH": "/custom/bin:${PATH}",
+	}
+	content, _ := GenerateDockerfile(features, "root", "root", nil, configEnv)
+
+	// Config containerEnv should appear after USER restore.
+	if !strings.Contains(content, `ENV MY_VAR="hello"`) {
+		t.Errorf("missing MY_VAR ENV instruction in:\n%s", content)
+	}
+	// Dollar signs should be escaped in config containerEnv.
+	if !strings.Contains(content, `ENV MY_PATH="/custom/bin:\${PATH}"`) {
+		t.Errorf("missing or improperly escaped MY_PATH ENV instruction in:\n%s", content)
+	}
+
+	// Config ENV should come after the USER restore line.
+	userIdx := strings.Index(content, "USER $_DEV_CONTAINERS_IMAGE_USER")
+	envIdx := strings.Index(content, "ENV MY_VAR=")
+	if userIdx < 0 || envIdx < 0 || envIdx < userIdx {
+		t.Errorf("config containerEnv should appear after USER restore")
+	}
+}
+
+func TestGenerateDockerfileConfigContainerEnvNil(t *testing.T) {
+	features := []*FeatureSet{
+		{
+			ConfigID: "test",
+			Config:   &FeatureConfig{ID: "test"},
+		},
+	}
+
+	content, _ := GenerateDockerfile(features, "root", "root", nil, nil)
+
+	// With nil configContainerEnv, no extra ENV lines after USER restore.
+	lines := strings.Split(content, "\n")
+	var afterUser []string
+	found := false
+	for _, line := range lines {
+		if found && strings.TrimSpace(line) != "" {
+			afterUser = append(afterUser, line)
+		}
+		if strings.Contains(line, "USER $_DEV_CONTAINERS_IMAGE_USER") {
+			found = true
+		}
+	}
+	for _, line := range afterUser {
+		if strings.HasPrefix(line, "ENV ") {
+			t.Errorf("unexpected ENV after USER restore with nil configContainerEnv: %s", line)
+		}
+	}
+}
+
+func TestEscapeEnvValue(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello", `"hello"`},
+		{"${PATH}", `"\${PATH}"`},
+		{`say "hi"`, `"say \"hi\""`},
+		{`back\slash`, `"back\\slash"`},
+		{"/bin:${PATH}:$HOME", `"/bin:\${PATH}:\$HOME"`},
+	}
+	for _, tt := range tests {
+		got := escapeEnvValue(tt.input)
+		if got != tt.want {
+			t.Errorf("escapeEnvValue(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

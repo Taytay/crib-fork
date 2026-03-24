@@ -24,7 +24,13 @@ const (
 //
 // cacheMounts are BuildKit cache mount targets (e.g. "/var/cache/apt") to
 // attach to each feature install RUN instruction. Pass nil to disable.
-func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string, cacheMounts []string) (content, prefix string) {
+//
+// configContainerEnv is the containerEnv from devcontainer.json (not from
+// features). These are baked into the image as ENV instructions with dollar
+// signs escaped, matching the official devcontainer CLI behavior. This ensures
+// values like ${PATH} are stored literally and expanded by the shell at
+// runtime, not by Docker at build time. Pass nil if not applicable.
+func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string, cacheMounts []string, configContainerEnv map[string]string) (content, prefix string) {
 	prefix = dockerfileSyntax + "\n" + baseImageArg + "\n"
 
 	var b strings.Builder
@@ -113,8 +119,34 @@ func GenerateDockerfile(features []*FeatureSet, containerUser, remoteUser string
 	fmt.Fprintf(&b, "ARG _DEV_CONTAINERS_IMAGE_USER=%s\n", imageUser)
 	b.WriteString("USER $_DEV_CONTAINERS_IMAGE_USER\n")
 
+	// devcontainer.json containerEnv as ENV instructions with escaped dollar
+	// signs. Placed after feature layers and user restore, matching the
+	// official devcontainer CLI's #{containerEnvMetadata} placement.
+	// Dollar signs are escaped so Docker stores them literally; the shell
+	// expands them at runtime (e.g. \${PATH} becomes ${PATH} in the image,
+	// then the shell resolves it when a session starts).
+	if len(configContainerEnv) > 0 {
+		b.WriteString("\n")
+		for k, v := range configContainerEnv {
+			fmt.Fprintf(&b, "ENV %s=%s\n", k, escapeEnvValue(v))
+		}
+	}
+
 	content = b.String()
 	return content, prefix
+}
+
+// escapeEnvValue formats a value for a Dockerfile ENV instruction with dollar
+// signs escaped. This matches the official devcontainer CLI's
+// generateContainerEnvs(env, escapeDollar=true) behavior: double quotes,
+// backslashes, and dollar signs are all escaped, and the result is wrapped
+// in double quotes.
+func escapeEnvValue(v string) string {
+	// Escape backslashes, double quotes, and dollar signs (in that order).
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `"`, `\"`)
+	v = strings.ReplaceAll(v, `$`, `\$`)
+	return `"` + v + `"`
 }
 
 // hasAptCache reports whether /var/cache/apt is among the cache mount targets.
