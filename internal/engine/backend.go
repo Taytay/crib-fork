@@ -50,11 +50,12 @@ type containerBackend interface {
 
 // createOpts bundles parameters for createContainer.
 type createOpts struct {
-	imageName      string
-	hasEntrypoints bool
-	metadata       []*config.ImageMetadata // nil when creating from stored/snapshot
-	pluginResp     *plugin.PreContainerRunResponse
-	skipBuild      bool // true when resuming from stored result (images exist)
+	imageName          string
+	hasEntrypoints     bool
+	containerEnvBaked  bool                           // true when cfg.ContainerEnv was baked into the image
+	metadata           []*config.ImageMetadata // nil when creating from stored/snapshot
+	pluginResp         *plugin.PreContainerRunResponse
+	skipBuild          bool // true when resuming from stored result (images exist)
 }
 
 // Compile-time interface checks.

@@ -362,3 +362,68 @@ func TestEscapeEnvValue(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendConfigContainerEnv_AddsEnvInstructions(t *testing.T) {
+dockerfileContent := "FROM ubuntu:24.04\nRUN apt-get update"
+containerEnv := map[string]string{
+"FOO": "bar",
+"BAZ": "/path:${PATH}",
+}
+
+result := AppendConfigContainerEnv(dockerfileContent, containerEnv)
+
+if !strings.Contains(result, "FROM ubuntu:24.04") {
+t.Error("original Dockerfile content should be preserved")
+}
+if !strings.Contains(result, `ENV FOO="bar"`) {
+t.Errorf("expected ENV FOO=\"bar\" in output, got:\n%s", result)
+}
+// Dollar signs should be escaped so Docker stores them literally.
+if !strings.Contains(result, `ENV BAZ="/path:\${PATH}"`) {
+t.Errorf("expected escaped ENV BAZ in output, got:\n%s", result)
+}
+}
+
+func TestAppendConfigContainerEnv_SortedOrder(t *testing.T) {
+dockerfileContent := "FROM alpine:3.20"
+containerEnv := map[string]string{
+"Z_LAST":  "last",
+"A_FIRST": "first",
+"M_MID":   "mid",
+}
+
+result := AppendConfigContainerEnv(dockerfileContent, containerEnv)
+lines := strings.Split(result, "\n")
+
+var envLines []string
+for _, l := range lines {
+if strings.HasPrefix(l, "ENV ") {
+envLines = append(envLines, l)
+}
+}
+
+if len(envLines) != 3 {
+t.Fatalf("expected 3 ENV lines, got %d: %v", len(envLines), envLines)
+}
+if !strings.HasPrefix(envLines[0], "ENV A_FIRST") {
+t.Errorf("first ENV should be A_FIRST, got %q", envLines[0])
+}
+if !strings.HasPrefix(envLines[1], "ENV M_MID") {
+t.Errorf("second ENV should be M_MID, got %q", envLines[1])
+}
+if !strings.HasPrefix(envLines[2], "ENV Z_LAST") {
+t.Errorf("third ENV should be Z_LAST, got %q", envLines[2])
+}
+}
+
+func TestAppendConfigContainerEnv_EmptyMap_ReturnsUnchanged(t *testing.T) {
+dockerfileContent := "FROM ubuntu:24.04"
+result := AppendConfigContainerEnv(dockerfileContent, nil)
+if result != dockerfileContent {
+t.Errorf("expected unchanged content for nil containerEnv, got:\n%s", result)
+}
+result = AppendConfigContainerEnv(dockerfileContent, map[string]string{})
+if result != dockerfileContent {
+t.Errorf("expected unchanged content for empty containerEnv, got:\n%s", result)
+}
+}

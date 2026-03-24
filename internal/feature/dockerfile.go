@@ -159,6 +159,32 @@ func escapeEnvValue(v string) string {
 	return `"` + v + `"`
 }
 
+// AppendConfigContainerEnv appends devcontainer.json containerEnv as ENV
+// instructions to a Dockerfile content string. Dollar signs are escaped so
+// Docker stores values literally (matching the official devcontainer CLI's
+// #{containerEnvMetadata} behavior). This is used for the Dockerfile-based
+// path without features, where GenerateDockerfile is not called.
+// Returns dockerfileContent unchanged if containerEnv is empty.
+func AppendConfigContainerEnv(dockerfileContent string, containerEnv map[string]string) string {
+	if len(containerEnv) == 0 {
+		return dockerfileContent
+	}
+
+	keys := make([]string, 0, len(containerEnv))
+	for k := range containerEnv {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	var b strings.Builder
+	b.WriteString(dockerfileContent)
+	b.WriteString("\n")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "ENV %s=%s\n", k, escapeEnvValue(containerEnv[k]))
+	}
+	return b.String()
+}
+
 // hasAptCache reports whether /var/cache/apt is among the cache mount targets.
 func hasAptCache(mounts []string) bool {
 	return slices.Contains(mounts, "/var/cache/apt")

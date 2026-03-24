@@ -51,7 +51,7 @@ func (b *composeBackend) createContainer(ctx context.Context, opts createOpts) (
 		fmeta = b.e.resolveFeatureMetadata(b.cfg)
 	}
 
-	overridePath, err := b.e.generateComposeOverride(b.ws, b.cfg, b.workspaceFolder, b.inv.files, opts.imageName, opts.pluginResp, fmeta...)
+	overridePath, err := b.e.generateComposeOverride(b.ws, b.cfg, b.workspaceFolder, b.inv.files, opts.imageName, opts.pluginResp, opts.containerEnvBaked, fmeta...)
 	if err != nil {
 		return "", fmt.Errorf("generating compose override: %w", err)
 	}
@@ -116,8 +116,10 @@ func (b *composeBackend) canResumeFromStored() bool {
 // non-fatal (the stale override file on disk is used as fallback).
 func (b *composeBackend) prepareOverride(ctx context.Context, pluginResp *plugin.PreContainerRunResponse) []string {
 	overrideImage := ""
+	containerEnvBaked := false
 	if stored, err := b.e.store.LoadResult(b.ws.ID); err == nil && stored != nil {
 		overrideImage = stored.ImageName
+		containerEnvBaked = stored.ContainerEnvBaked
 	}
 	if img, ok := b.e.validSnapshot(ctx, b.ws, b.cfg); ok {
 		overrideImage = img
@@ -125,7 +127,7 @@ func (b *composeBackend) prepareOverride(ctx context.Context, pluginResp *plugin
 
 	fmeta := b.e.resolveFeatureMetadata(b.cfg)
 
-	if _, err := b.e.generateComposeOverride(b.ws, b.cfg, b.workspaceFolder, b.inv.files, overrideImage, pluginResp, fmeta...); err != nil {
+	if _, err := b.e.generateComposeOverride(b.ws, b.cfg, b.workspaceFolder, b.inv.files, overrideImage, pluginResp, containerEnvBaked, fmeta...); err != nil {
 		b.e.logger.Warn("failed to regenerate compose override", "error", err)
 	}
 

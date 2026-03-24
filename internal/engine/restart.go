@@ -132,13 +132,14 @@ func (e *Engine) restartSimple(ctx context.Context, ws *workspace.Workspace, cfg
 	}
 
 	result, err := e.finalize(ctx, ws, cfg, finalizeOpts{
-		cc:              cc,
-		imageName:       storedResult.ImageName,
-		hasEntrypoints:  storedResult.HasFeatureEntrypoints,
-		pluginResp:      pluginResp,
-		storedResult:    storedResult,
-		fromSnapshot:    true,
-		skipVolumeChown: true,
+		cc:                cc,
+		imageName:         storedResult.ImageName,
+		hasEntrypoints:    storedResult.HasFeatureEntrypoints,
+		containerEnvBaked: storedResult.ContainerEnvBaked,
+		pluginResp:        pluginResp,
+		storedResult:      storedResult,
+		fromSnapshot:      true,
+		skipVolumeChown:   true,
 	})
 	if err != nil {
 		return nil, err
@@ -163,6 +164,7 @@ func (e *Engine) restartRecreate(ctx context.Context, ws *workspace.Workspace, c
 	// Determine the image to use.
 	var imageName string
 	var hasEntrypoints bool
+	var containerEnvBaked bool
 	var metadata []*config.ImageMetadata
 
 	// storedResult is guaranteed non-nil (Restart validates before calling).
@@ -170,9 +172,11 @@ func (e *Engine) restartRecreate(ctx context.Context, ws *workspace.Workspace, c
 	case hasSnapshot:
 		imageName = snapshotImage
 		hasEntrypoints = storedResult.HasFeatureEntrypoints
+		containerEnvBaked = storedResult.ContainerEnvBaked
 	case storedResult.ImageName != "":
 		imageName = storedResult.ImageName
 		hasEntrypoints = storedResult.HasFeatureEntrypoints
+		containerEnvBaked = storedResult.ContainerEnvBaked
 	case cfg.Image != "":
 		imageName = cfg.Image
 	}
@@ -188,6 +192,7 @@ func (e *Engine) restartRecreate(ctx context.Context, ws *workspace.Workspace, c
 		}
 		imageName = buildRes.imageName
 		hasEntrypoints = buildRes.hasEntrypoints
+		containerEnvBaked = buildRes.containerEnvBaked
 		metadata = buildRes.imageMetadata
 	}
 
@@ -199,11 +204,12 @@ func (e *Engine) restartRecreate(ctx context.Context, ws *workspace.Workspace, c
 	}
 
 	containerID, err := b.createContainer(ctx, createOpts{
-		imageName:      imageName,
-		hasEntrypoints: hasEntrypoints,
-		metadata:       metadata,
-		pluginResp:     pluginResp,
-		skipBuild:      hasSnapshot || b.canResumeFromStored() || (storedResult != nil && storedResult.ImageName != ""),
+		imageName:         imageName,
+		hasEntrypoints:    hasEntrypoints,
+		containerEnvBaked: containerEnvBaked,
+		metadata:          metadata,
+		pluginResp:        pluginResp,
+		skipBuild:         hasSnapshot || b.canResumeFromStored() || (storedResult != nil && storedResult.ImageName != ""),
 	})
 	if err != nil {
 		return nil, err
@@ -222,12 +228,13 @@ func (e *Engine) restartRecreate(ctx context.Context, ws *workspace.Workspace, c
 	}
 
 	upResult, err := e.finalize(ctx, ws, cfg, finalizeOpts{
-		cc:             cc,
-		imageName:      resultImageName,
-		hasEntrypoints: hasEntrypoints,
-		pluginResp:     pluginResp,
-		storedResult:   storedResult,
-		fromSnapshot:   hasSnapshot,
+		cc:                cc,
+		imageName:         resultImageName,
+		hasEntrypoints:    hasEntrypoints,
+		containerEnvBaked: containerEnvBaked,
+		pluginResp:        pluginResp,
+		storedResult:      storedResult,
+		fromSnapshot:      hasSnapshot,
 	})
 	if err != nil {
 		if upResult != nil {

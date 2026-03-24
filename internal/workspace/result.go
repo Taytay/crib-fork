@@ -38,4 +38,11 @@ type Result struct {
 	// that declare entrypoints (e.g. docker-in-docker). Used by restart
 	// paths to know whether to override the container entrypoint.
 	HasFeatureEntrypoints bool `json:"hasFeatureEntrypoints,omitempty"`
+
+	// ContainerEnvBaked is true when devcontainer.json containerEnv values
+	// were baked into the image as ENV instructions during the Dockerfile
+	// build. When true, containerEnv must not be re-applied at runtime via
+	// -e flags or compose environment, since that would override the
+	// correctly-expanded image ENV with unexpanded literals.
+	ContainerEnvBaked bool `json:"containerEnvBaked,omitempty"`
 }

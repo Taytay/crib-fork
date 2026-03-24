@@ -11,13 +11,14 @@ import (
 
 // finalizeOpts configures the finalize method.
 type finalizeOpts struct {
-	cc              containerContext
-	imageName       string                          // original (not snapshot) for result
-	hasEntrypoints  bool                            // feature entrypoints baked into image
-	pluginResp      *plugin.PreContainerRunResponse // may be nil
-	storedResult    *workspace.Result               // non-nil for snapshot/stored resume
-	fromSnapshot    bool                            // true = restore env + resume hooks
-	skipVolumeChown bool                            // true for restart (volumes exist)
+	cc                containerContext
+	imageName         string                          // original (not snapshot) for result
+	hasEntrypoints    bool                            // feature entrypoints baked into image
+	containerEnvBaked bool                            // containerEnv baked into image as ENV
+	pluginResp        *plugin.PreContainerRunResponse // may be nil
+	storedResult      *workspace.Result               // non-nil for snapshot/stored resume
+	fromSnapshot      bool                            // true = restore env + resume hooks
+	skipVolumeChown   bool                            // true for restart (volumes exist)
 }
 
 // finalize runs post-creation/post-restart steps: plugin file copies, volume
@@ -58,6 +59,7 @@ func (e *Engine) finalize(ctx context.Context, ws *workspace.Workspace, cfg *con
 		RemoteUser:            cc.remoteUser,
 		Ports:                 portSpecToBindings(collectPorts(cfg.ForwardPorts, cfg.AppPort)),
 		HasFeatureEntrypoints: opts.hasEntrypoints,
+		ContainerEnvBaked:     opts.containerEnvBaked,
 	}
 
 	// 4. Build env and run lifecycle.

@@ -170,6 +170,11 @@ type UpResult struct {
 	// HasFeatureEntrypoints is true when the image has feature-declared
 	// entrypoints baked in. Persisted to result.json for restart paths.
 	HasFeatureEntrypoints bool
+
+	// ContainerEnvBaked is true when devcontainer.json containerEnv was baked
+	// into the image as ENV instructions. Persisted to result.json so restart
+	// and resume paths know not to re-apply containerEnv via -e flags.
+	ContainerEnvBaked bool
 }
 
 // Up brings a devcontainer up for the given workspace.
@@ -230,9 +235,11 @@ func (e *Engine) upExisting(ctx context.Context, ws *workspace.Workspace, cfg *c
 	// Load stored result for image name and feature entrypoints.
 	var storedImageName string
 	var storedHasEntrypoints bool
+	var storedContainerEnvBaked bool
 	if stored, err := e.store.LoadResult(ws.ID); err == nil && stored != nil {
 		storedImageName = stored.ImageName
 		storedHasEntrypoints = stored.HasFeatureEntrypoints
+		storedContainerEnvBaked = stored.ContainerEnvBaked
 	}
 
 	// Dispatch plugins.
@@ -261,10 +268,11 @@ func (e *Engine) upExisting(ctx context.Context, ws *workspace.Workspace, cfg *c
 	}
 
 	return e.finalize(ctx, ws, cfg, finalizeOpts{
-		cc:             cc,
-		imageName:      storedImageName,
-		hasEntrypoints: storedHasEntrypoints,
-		pluginResp:     pluginResp,
+		cc:                cc,
+		imageName:         storedImageName,
+		hasEntrypoints:    storedHasEntrypoints,
+		containerEnvBaked: storedContainerEnvBaked,
+		pluginResp:        pluginResp,
 	})
 }
 
@@ -298,10 +306,11 @@ func (e *Engine) upCreate(ctx context.Context, ws *workspace.Workspace, cfg *con
 	}
 
 	containerID, err := b.createContainer(ctx, createOpts{
-		imageName:      buildRes.imageName,
-		hasEntrypoints: buildRes.hasEntrypoints,
-		metadata:       buildRes.imageMetadata,
-		pluginResp:     pluginResp,
+		imageName:         buildRes.imageName,
+		hasEntrypoints:    buildRes.hasEntrypoints,
+		containerEnvBaked: buildRes.containerEnvBaked,
+		metadata:          buildRes.imageMetadata,
+		pluginResp:        pluginResp,
 	})
 	if err != nil {
 		return nil, err
@@ -313,10 +322,11 @@ func (e *Engine) upCreate(ctx context.Context, ws *workspace.Workspace, cfg *con
 		workspaceFolder: workspaceFolder,
 	}
 	return e.finalize(ctx, ws, cfg, finalizeOpts{
-		cc:             cc,
-		imageName:      buildRes.imageName,
-		hasEntrypoints: buildRes.hasEntrypoints,
-		pluginResp:     pluginResp,
+		cc:                cc,
+		imageName:         buildRes.imageName,
+		hasEntrypoints:    buildRes.hasEntrypoints,
+		containerEnvBaked: buildRes.containerEnvBaked,
+		pluginResp:        pluginResp,
 	})
 }
 
@@ -332,12 +342,14 @@ func (e *Engine) upFromImage(ctx context.Context, ws *workspace.Workspace, cfg *
 	}
 
 	hasEntrypoints := storedResult.HasFeatureEntrypoints
+	containerEnvBaked := storedResult.ContainerEnvBaked
 
 	containerID, err := b.createContainer(ctx, createOpts{
-		imageName:      imageName,
-		hasEntrypoints: hasEntrypoints,
-		pluginResp:     pluginResp,
-		skipBuild:      true,
+		imageName:         imageName,
+		hasEntrypoints:    hasEntrypoints,
+		containerEnvBaked: containerEnvBaked,
+		pluginResp:        pluginResp,
+		skipBuild:         true,
 	})
 	if err != nil {
 		return nil, err
@@ -353,12 +365,13 @@ func (e *Engine) upFromImage(ctx context.Context, ws *workspace.Workspace, cfg *
 	resultImageName := storedResult.ImageName
 
 	return e.finalize(ctx, ws, cfg, finalizeOpts{
-		cc:             cc,
-		imageName:      resultImageName,
-		hasEntrypoints: hasEntrypoints,
-		pluginResp:     pluginResp,
-		storedResult:   storedResult,
-		fromSnapshot:   isSnapshot,
+		cc:                cc,
+		imageName:         resultImageName,
+		hasEntrypoints:    hasEntrypoints,
+		containerEnvBaked: containerEnvBaked,
+		pluginResp:        pluginResp,
+		storedResult:      storedResult,
+		fromSnapshot:      isSnapshot,
 	})
 }
 
@@ -387,6 +400,7 @@ func (e *Engine) saveResult(ws *workspace.Workspace, cfg *config.DevContainerCon
 	wsResult.RemoteEnv = cfg.RemoteEnv
 	wsResult.RemoteUser = result.RemoteUser
 	wsResult.HasFeatureEntrypoints = result.HasFeatureEntrypoints
+	wsResult.ContainerEnvBaked = result.ContainerEnvBaked
 
 	if err := e.store.SaveResult(ws.ID, wsResult); err != nil {
 		e.logger.Warn("failed to save workspace result", "error", err)
