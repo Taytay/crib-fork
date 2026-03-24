@@ -29,6 +29,46 @@ type RestartResult struct {
 	Ports []driver.PortBinding
 }
 
+// RestartPlan describes what a Restart operation will do.
+type RestartPlan struct {
+	// WillRecreate is true when config changes require the container to be
+	// deleted and recreated. Any state not stored in volumes will be lost.
+	WillRecreate bool
+
+	// NeedsRebuild is true when image-affecting changes were detected and
+	// restart cannot proceed (user should run 'crib rebuild' instead).
+	NeedsRebuild bool
+}
+
+// PlanRestart inspects the current config against the stored config and
+// returns a plan describing what Restart will do. This allows the CLI
+// layer to warn the user before destructive operations.
+func (e *Engine) PlanRestart(ctx context.Context, ws *workspace.Workspace) (*RestartPlan, error) {
+	storedResult, err := e.store.LoadResult(ws.ID)
+	if err != nil {
+		return nil, fmt.Errorf("loading workspace result: %w", err)
+	}
+	if storedResult == nil {
+		return nil, fmt.Errorf("no previous result found for workspace %s (run 'crib up' first)", ws.ID)
+	}
+
+	cfg, _, err := e.parseAndSubstitute(ws)
+	if err != nil {
+		return nil, err
+	}
+
+	var storedCfg config.DevContainerConfig
+	if err := json.Unmarshal(storedResult.MergedConfig, &storedCfg); err != nil {
+		return nil, fmt.Errorf("unmarshaling stored config: %w", err)
+	}
+
+	change := detectConfigChange(&storedCfg, cfg)
+	return &RestartPlan{
+		WillRecreate: change == changeSafe,
+		NeedsRebuild: change == changeNeedsRebuild,
+	}, nil
+}
+
 // Restart restarts the container for the given workspace. It implements a
 // "warm recreate" strategy:
 //   - If the devcontainer config hasn't changed, it does a simple container restart

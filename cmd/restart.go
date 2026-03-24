@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 )
+
+var restartForceFlag bool
 
 var restartCmd = &cobra.Command{
 	Use:   "restart",
@@ -16,6 +19,10 @@ settings changed in devcontainer.json (or docker-compose files), the container
 is automatically recreated with the new configuration. Only the resume-flow
 lifecycle hooks (postStartCommand, postAttachCommand) run — creation hooks
 are skipped, making restart much faster than a full rebuild.
+
+When the container is recreated, any state not stored in volumes is lost (for
+example, packages installed manually inside the container). Use --force to skip
+the confirmation prompt.
 
 If image-affecting changes are detected (image, Dockerfile, features, build
 args), restart will ask you to run 'crib rebuild' instead.`,
@@ -38,6 +45,27 @@ args), restart will ask you to run 'crib rebuild' instead.`,
 		}
 
 		u.Dim(versionString())
+
+		// Check whether restart will recreate the container and warn.
+		if !restartForceFlag {
+			plan, err := eng.PlanRestart(cmd.Context(), ws)
+			if err != nil {
+				return err
+			}
+			if plan.WillRecreate {
+				fmt.Fprintln(os.Stderr, "Config changes detected. The container will be recreated and any")
+				fmt.Fprintln(os.Stderr, "state not stored in volumes will be lost.")
+				confirmed, err := confirmPrompt("recreation requires confirmation")
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					u.Dim("Aborted")
+					return nil
+				}
+			}
+		}
+
 		u.Header("Restarting workspace")
 
 		result, err := eng.Restart(cmd.Context(), ws)
@@ -66,4 +94,8 @@ args), restart will ask you to run 'crib rebuild' instead.`,
 
 		return nil
 	},
+}
+
+func init() {
+	restartCmd.Flags().BoolVarP(&restartForceFlag, "force", "f", false, "skip confirmation prompt when recreating")
 }

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -160,6 +161,138 @@ func TestDetectConfigChange_ComposeServiceChanged(t *testing.T) {
 
 	if got := detectConfigChange(stored, current); got != changeSafe {
 		t.Errorf("expected changeSafe, got %d", got)
+	}
+}
+
+// planRestartEngine creates an Engine with a workspace and devcontainer.json
+// on disk, suitable for PlanRestart tests.
+func planRestartEngine(t *testing.T, currentJSON string, storedResult *workspace.Result) (*Engine, *workspace.Workspace) {
+	t.Helper()
+
+	store := workspace.NewStoreAt(t.TempDir())
+	ws := &workspace.Workspace{ID: "ws-plan", Source: t.TempDir()}
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	dcDir := filepath.Join(ws.Source, ".devcontainer")
+	if err := os.MkdirAll(dcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dcDir, "devcontainer.json"), []byte(currentJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws.DevContainerPath = ".devcontainer/devcontainer.json"
+
+	if err := store.SaveResult(ws.ID, storedResult); err != nil {
+		t.Fatal(err)
+	}
+
+	eng := &Engine{
+		driver:      &mockDriver{},
+		store:       store,
+		runtimeName: "docker",
+		logger:      slog.Default(),
+		stdout:      io.Discard,
+		stderr:      io.Discard,
+		progress:    func(string) {},
+	}
+	return eng, ws
+}
+
+func TestPlanRestart_NoChange(t *testing.T) {
+	storedCfg := &config.DevContainerConfig{}
+	storedCfg.Image = "ubuntu:22.04"
+	mergedJSON, _ := json.Marshal(storedCfg)
+
+	eng, ws := planRestartEngine(t, `{"image":"ubuntu:22.04"}`, &workspace.Result{
+		ContainerID:  "c-1",
+		ImageName:    "ubuntu:22.04",
+		MergedConfig: mergedJSON,
+	})
+
+	plan, err := eng.PlanRestart(context.Background(), ws)
+	if err != nil {
+		t.Fatalf("PlanRestart: %v", err)
+	}
+	if plan.WillRecreate {
+		t.Error("expected WillRecreate=false for no config changes")
+	}
+	if plan.NeedsRebuild {
+		t.Error("expected NeedsRebuild=false for no config changes")
+	}
+}
+
+func TestPlanRestart_SafeChange(t *testing.T) {
+	storedCfg := &config.DevContainerConfig{}
+	storedCfg.Image = "ubuntu:22.04"
+	storedCfg.ContainerEnv = map[string]string{"FOO": "bar"}
+	mergedJSON, _ := json.Marshal(storedCfg)
+
+	eng, ws := planRestartEngine(t, `{"image":"ubuntu:22.04","containerEnv":{"FOO":"baz"}}`, &workspace.Result{
+		ContainerID:  "c-1",
+		ImageName:    "ubuntu:22.04",
+		MergedConfig: mergedJSON,
+	})
+
+	plan, err := eng.PlanRestart(context.Background(), ws)
+	if err != nil {
+		t.Fatalf("PlanRestart: %v", err)
+	}
+	if !plan.WillRecreate {
+		t.Error("expected WillRecreate=true for safe config change")
+	}
+	if plan.NeedsRebuild {
+		t.Error("expected NeedsRebuild=false for safe config change")
+	}
+}
+
+func TestPlanRestart_NeedsRebuild(t *testing.T) {
+	storedCfg := &config.DevContainerConfig{}
+	storedCfg.Image = "ubuntu:22.04"
+	mergedJSON, _ := json.Marshal(storedCfg)
+
+	eng, ws := planRestartEngine(t, `{"image":"ubuntu:24.04"}`, &workspace.Result{
+		ContainerID:  "c-1",
+		ImageName:    "ubuntu:22.04",
+		MergedConfig: mergedJSON,
+	})
+
+	plan, err := eng.PlanRestart(context.Background(), ws)
+	if err != nil {
+		t.Fatalf("PlanRestart: %v", err)
+	}
+	if plan.WillRecreate {
+		t.Error("expected WillRecreate=false for rebuild-required change")
+	}
+	if !plan.NeedsRebuild {
+		t.Error("expected NeedsRebuild=true for image change")
+	}
+}
+
+func TestPlanRestart_NoStoredResult(t *testing.T) {
+	store := workspace.NewStoreAt(t.TempDir())
+	ws := &workspace.Workspace{ID: "ws-plan-empty", Source: t.TempDir()}
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	eng := &Engine{
+		driver:      &mockDriver{},
+		store:       store,
+		runtimeName: "docker",
+		logger:      slog.Default(),
+		stdout:      io.Discard,
+		stderr:      io.Discard,
+		progress:    func(string) {},
+	}
+
+	_, err := eng.PlanRestart(context.Background(), ws)
+	if err == nil {
+		t.Fatal("expected error for missing stored result")
+	}
+	if !strings.Contains(err.Error(), "no previous result") {
+		t.Errorf("expected 'no previous result' error, got: %v", err)
 	}
 }
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `crib suspend` command to stop a container without removing it.
+  `crib up` and `crib restart` resume the suspended container with
+  resume-flow hooks only.
+- `crib restart` now warns and prompts for confirmation when config changes
+  require the container to be recreated (which loses non-volume state).
+  Use `--force` to skip the prompt.
+
 ## [0.7.0] - 2026-03-10
 
 ### Added

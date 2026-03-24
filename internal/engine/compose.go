@@ -326,6 +326,12 @@ func writeFeatureOverrides(b *strings.Builder, metadata []*config.ImageMetadata,
 	return env, mounts
 }
 
+// composeStop wraps compose.Stop to stop all services without removing
+// containers or networks.
+func (e *Engine) composeStop(ctx context.Context, inv composeInvocation) error {
+	return e.compose.Stop(ctx, inv.projectName, inv.files, e.composeStdout(), e.composeStderr(), inv.env)
+}
+
 // composeDown wraps compose.Down, including a temporary x-podman override when
 // running rootless Podman. Without this override, podman-compose tries to
 // remove a pod that was never created (because Up used in_pod: false).
